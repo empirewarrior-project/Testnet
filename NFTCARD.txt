@@ -1,0 +1,302 @@
+
+pragma solidity ^0.7.6;
+pragma abicoder v2;
+
+import "./IERC20.sol";
+import "./SafeERC20.sol";
+import "./ERC721.sol";
+
+contract EMPCARD is ERC721 {
+    using SafeMath for uint256;
+    using SafeERC20 for IERC20;
+    using EnumerableSet for EnumerableSet.UintSet;
+
+    enum CLASS {
+        EARTH,
+        WATER,
+        FIRE,
+        METAL,
+        WOOD
+    }
+    
+    event GenerateCARD(
+        );
+
+    event GenerateCARD(uint256 indexed tokenId, address buyer);
+   
+    event Buy(
+        uint256 indexed tokenId,
+        address buyer,
+        address seller,
+        uint256 price
+    );
+
+    event PlaceOrder(uint256 indexed tokenId, address seller, uint256 price);
+    event CancelOrder(uint256 indexed tokenId, address seller);
+    event UpdatePrice(
+        uint256 indexed tokenId,
+        address seller,
+        uint256 newPrice
+    );
+    
+    event UpdateTurn(
+        uint256 indexed tokenId,
+        uint turn,
+        uint256 lastplayedTime
+    );
+    
+    event UpdateLevel(
+        uint256 indexed tokenId,
+        uint256 level
+    );
+    event FillOrder(uint256 indexed tokenId, address seller);
+
+    struct CardInfo {
+        uint id;
+        CLASS class;
+        uint idImg;
+        uint rare;
+        uint level;
+        uint256 exp;
+        uint power;
+        uint defence;
+        string counter;
+        uint reward;
+        uint turn;
+        uint256 lastplayedTime;
+        bool market;
+        uint256 bornTime;
+    }
+
+    struct ItemSale {
+        uint256 tokenId;
+        address owner;
+        uint256 price;
+    }
+
+    uint256 public latestTokenId;
+
+    mapping(uint256 => CardInfo) internal cards;
+    mapping(uint256 => ItemSale) internal markets;
+
+    EnumerableSet.UintSet private tokenSales;
+    mapping(address => EnumerableSet.UintSet) private sellerTokens;
+
+    IERC20 public empERC20;
+
+    constructor(
+        string memory _name,
+        string memory _symbol, 
+        address _manager,
+        address _empERC20
+    ) ERC721(_name, _symbol, _manager) {
+        empERC20 = IERC20(_empERC20);
+    }
+
+    function _mint(address to, uint256 tokenId) internal override(ERC721) {
+        super._mint(to, tokenId);
+
+        _incrementTokenId();
+    }
+
+    function generateCARD(address receiver, uint _class, uint _idImg, uint _rare, uint _power, uint _defence, string memory _counter, uint _reward) external returns (uint256){
+        require(manager.farmOwners(msg.sender), "require Farm Owner");
+        uint256 nextTokenId = _getNextTokenId();
+        _mint(receiver, nextTokenId);
+
+        cards[nextTokenId] = CardInfo({
+            id : nextTokenId,
+            class : CLASS(_class),
+            idImg : _idImg,
+            rare : _rare,
+            level: 1,
+            exp : 0,
+            power: _power,
+            defence : _defence,
+            counter: _counter,
+            reward : _reward,
+            turn : 0,
+            lastplayedTime : 0,
+            market : false,
+            bornTime: block.timestamp
+        });
+
+        emit GenerateCARD(nextTokenId, receiver);
+        return nextTokenId;
+    }
+
+    function _getNextTokenId() private view returns (uint256) {
+        return latestTokenId.add(1);
+    }
+
+    /**
+     * @dev increments the value of latestTokenId
+     */
+    function _incrementTokenId() private {
+        latestTokenId++;
+    }
+
+    function getCardInfo(uint256 _tokenId)
+        external
+        view
+        returns (CardInfo memory)
+    {
+        return cards[_tokenId];
+    }
+    
+    function updateTurn(address cardOwner, uint256 _tokenId, uint turn, uint256 lastplayedTime) external returns (bool) {
+        require(manager.farmOwners(msg.sender), "require Card Owner");
+        require(ownerOf(_tokenId) == cardOwner, "You are not owner");
+        CardInfo storage card = cards[_tokenId];
+        card.turn = turn;
+        card.lastplayedTime = lastplayedTime;
+
+        emit UpdateTurn(_tokenId, turn, lastplayedTime);
+        return true;
+    }
+    
+    function updateLevel(address cardOwner, uint256 _tokenId, uint _exp) external returns (bool) {
+        require(manager.farmOwners(msg.sender), "require Card Owner");
+        require(ownerOf(_tokenId) == cardOwner, "You are not owner");
+        CardInfo storage card = cards[_tokenId];
+        card.exp += _exp;
+        if (card.exp >= 100) {
+            card.level += 1;
+            card.exp = card.exp - 100;
+            card.power += 2;
+            card.defence += 2;
+        }
+
+        emit UpdateLevel(_tokenId, card.level);
+        return true;
+    }
+
+    function placeOrder(uint256 _tokenId, uint256 _price) public {
+        require(ownerOf(_tokenId) == _msgSender(), "You are not owner");
+        require(_price > 0, "Ivalid price");
+
+        tokenOrder(_tokenId, true, _price);
+
+        emit PlaceOrder(_tokenId, _msgSender(), _price);
+    }
+
+    function cancelOrder(uint256 _tokenId) public {
+        require(tokenSales.contains(_tokenId), "not sale");
+        ItemSale storage itemSale = markets[_tokenId];
+        require(itemSale.owner == _msgSender(), "not own");
+
+        tokenOrder(_tokenId, false, 0);
+
+        emit CancelOrder(_tokenId, _msgSender());
+    }
+
+    function updatePrice(uint256 _tokenId, uint256 _price) public {
+        require(_price > 0, "Ivalid price");
+        require(tokenSales.contains(_tokenId), "not sale");
+        ItemSale storage itemSale = markets[_tokenId];
+        require(itemSale.owner == _msgSender(), "You are not owner");
+
+        itemSale.price = _price;
+
+        emit UpdatePrice(_tokenId, _msgSender(), _price);
+    }
+
+    function fillOrder(uint256 _tokenId) public {
+        require(tokenSales.contains(_tokenId), "not sale");
+        ItemSale storage itemSale = markets[_tokenId];
+        uint256 feeMarket = itemSale.price.mul(manager.feeMarketRate()).div(
+            manager.divPercent()
+        );
+        empERC20.transferFrom(_msgSender(), manager.feeAddress(), feeMarket);
+        empERC20.transferFrom(
+            _msgSender(),
+            itemSale.owner,
+            itemSale.price.sub(feeMarket)
+        );
+
+        tokenOrder(_tokenId, false, 0);
+        emit FillOrder(_tokenId, _msgSender());
+    }
+
+    function tokenOrder(
+        uint256 _tokenId,
+        bool _sell,
+        uint256 _price
+    ) internal {
+        ItemSale storage itemSale = markets[_tokenId];
+        if (_sell) {
+            transferFrom(_msgSender(), address(this), _tokenId);
+            tokenSales.add(_tokenId);
+            sellerTokens[_msgSender()].add(_tokenId);
+
+            markets[_tokenId] = ItemSale({
+                tokenId: _tokenId,
+                price: _price,
+                owner: _msgSender()
+            });
+        } else {
+            transferFrom(address(this), _msgSender(), _tokenId);
+
+            tokenSales.remove(_tokenId);
+            sellerTokens[itemSale.owner].remove(_tokenId);
+            markets[_tokenId] = ItemSale({
+                tokenId: 0,
+                price: 0,
+                owner: address(0)
+            });
+        }
+    }
+
+    function marketsSize() public view returns (uint256) {
+        return tokenSales.length();
+    }
+
+    function orders(address _seller) public view returns (uint256) {
+        return sellerTokens[_seller].length();
+    }
+
+    function tokenSaleByIndex(uint256 index) public view returns (uint256) {
+        return tokenSales.at(index);
+    }
+
+    function tokenSaleOfOwnerByIndex(address _seller, uint256 index)
+        public
+        view
+        returns (uint256)
+    {
+        return sellerTokens[_seller].at(index);
+    }
+
+    function getSale(uint256 _tokenId) public view returns (ItemSale memory) {
+        if (tokenSales.contains(_tokenId)) return markets[_tokenId];
+        return ItemSale({tokenId: 0, owner: address(0), price: 0});
+    }
+    
+    function getCard(address _owner) external view returns (CardInfo[] memory) {
+        CardInfo[] memory list = new CardInfo[](latestTokenId+1);
+        uint index = 0;
+        for (uint i=1; i <= latestTokenId; i++) {
+            if (ownerOf(i) == _owner) {
+                list[index] = cards[i];
+                index += 1;
+            }
+        }
+        return list;
+    }
+    
+    function getCardHolder(address _holder, uint256 _cardId) external view returns (bool) {
+        if (ownerOf(_cardId) == _holder)  return true;
+        return false;
+    }
+    
+    function lastTokenId() external view returns (uint256) {
+        return latestTokenId;
+    }
+    
+    function setEmpAddress(address _empERC20) external {
+        require(manager.gemOwners(msg.sender), "require Gem Owner");
+        empERC20 = IERC20(_empERC20);
+    }
+    
+    
+}
