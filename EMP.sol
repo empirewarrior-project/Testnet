@@ -11,10 +11,10 @@ contract EMP is Ownable, ERC20 {
     using SafeMath for uint256;
     uint256 public maxTotalSupply = 1000 * 10**6 * 10**18;
     uint256 public inGameReward = 170 * 10**6 * 10**18;
-	uint256 pulibc maxRewardPerCall = 1 * 10**6 * 10**18;
+    uint256 pulibc maxRewardPerCall = 1 * 10**6 * 10**18;
     uint256 public rewardForBattle;
 
-	address public marketingWallet;
+    address public marketingWallet;
 	
     uint256 public feeLimitation = 15;  
     uint256 public sellFee = 2;
@@ -59,13 +59,13 @@ contract EMP is Ownable, ERC20 {
 
     function inGame(address player, uint256 reward) external returns (bool){
         require(manager.farmOwners(_msgSender()), "Caller is not the farmer");
-		require (reward <= maxRewardPerCall, "Over Amount")
+        require (reward <= maxRewardPerCall, "Over Amount")
         require(rewardForBattle != inGameReward, "Over Amount");
         require(player != address(0), "wrong address");
         require(reward > 0, "wrong reward");
 
         rewardForBattle = rewardForBattle.add(reward);
-		require(rewardForBattle <= inGameReward, "Exceed Game Reward");
+        require(rewardForBattle <= inGameReward, "Exceed Game Reward");
         _mint(player, reward);
         return true;
     }
