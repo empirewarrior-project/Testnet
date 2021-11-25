@@ -16,9 +16,13 @@ contract EMP is Ownable, ERC20 {
 
     address public marketingWallet;
 	
-    uint256 public feeLimitation = 15;  
+    uint256 public feeLimitation = 10;  
     uint256 public sellFee = 2;
     uint256 public buyFee = 0;
+
+    BPContract public BP;
+    bool public bpEnabled;
+    bool public BPDisabledForever = false;
 
     mapping (address => bool) private _isExcludedFromFee;
     IUniswapV2Router02 public uniswapV2Router;
@@ -42,6 +46,10 @@ contract EMP is Ownable, ERC20 {
 
 
     function _transfer(address sender, address recipient, uint256 amount ) internal virtual override {
+        if (bpEnabled && !BPDisabledForever){
+            BP.protect(from, to, amount);
+        }
+        
         uint256 transferFeeRate = recipient == uniswapV2Pair ? sellFee : (sender == uniswapV2Pair ? buyFee : 0);
         if ( transferFeeRate > 0 &&
              !_isExcludedFromFee[sender] && 
@@ -94,5 +102,17 @@ contract EMP is Ownable, ERC20 {
         require (feeLimitation >= _sellFee && feeLimitation >= _buyFee, ' Exceed Limitation Fee')
         sellFee = _sellFee;
         buyFee = _buyFee;
+    }
+
+    function setBPAddrss(address _bp) external onlyOwner {
+        require(address(BP)== address(0), "Can only be initialized once");
+        BP = BPContract(_bp);
+    }
+    function setBpEnabled(bool _enabled) external onlyOwner {
+        bpEnabled = _enabled;
+    }
+    function setBotProtectionDisableForever() external onlyOwner{
+        require(BPDisabledForever == false);
+        BPDisabledForever = true;
     }
 }
