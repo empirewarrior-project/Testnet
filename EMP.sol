@@ -10,8 +10,8 @@ import "./Uniswap.sol";
 contract EMP is Ownable, ERC20 {
     using SafeMath for uint256;
     uint256 public maxTotalSupply = 1000 * 10**6 * 10**18;
-    uint256 public inGameReward = 170 * 10**6 * 10**18;
-    uint256 public maxRewardPerCall = 1 * 10**6 * 10**18;
+    uint256 public inGameReward = 270 * 10**6 * 10**18;
+    uint256 public maxRewardPerCall = 5 * 10**4 * 10**18;
     uint256 public rewardForBattle;
 
     address public marketingWallet;
@@ -49,7 +49,7 @@ contract EMP is Ownable, ERC20 {
         if (bpEnabled && !BPDisabledForever){
             BP.protect(from, to, amount);
         }
-        
+
         uint256 transferFeeRate = recipient == uniswapV2Pair ? sellFee : (sender == uniswapV2Pair ? buyFee : 0);
         if ( transferFeeRate > 0 &&
              !_isExcludedFromFee[sender] && 
