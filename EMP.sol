@@ -1,11 +1,14 @@
-// SPDX-License-Identifier: MIT
 pragma solidity ^0.7.6;
 
+import "./Uniswap.sol";
+import "./ReentrancyGuard.sol";
 import "./ERC20.sol";
 import "./SafeMath.sol";
 import "./Ownable.sol";
-import "./ReentrancyGuard.sol";
-import "./Uniswap.sol";
+
+abstract contract BPContract{
+    function protect( address sender, address receiver, uint256 amount ) external virtual;
+}
 
 contract EMP is Ownable, ERC20 {
     using SafeMath for uint256;
@@ -15,8 +18,8 @@ contract EMP is Ownable, ERC20 {
     uint256 public rewardForBattle;
 
     address public marketingWallet;
-	
-    uint256 public feeLimitation = 10;  
+
+    uint256 public feeLimitation = 10;
     uint256 public sellFee = 2;
     uint256 public buyFee = 0;
 
@@ -44,18 +47,19 @@ contract EMP is Ownable, ERC20 {
         _isExcludedFromFee[marketingWallet] = true;
     }
 
-
     function _transfer(address sender, address recipient, uint256 amount ) internal virtual override {
         if (bpEnabled && !BPDisabledForever){
-            BP.protect(from, to, amount);
+            BP.protect(sender, recipient, amount);
         }
 
         uint256 transferFeeRate = recipient == uniswapV2Pair ? sellFee : (sender == uniswapV2Pair ? buyFee : 0);
         if ( transferFeeRate > 0 &&
-             !_isExcludedFromFee[sender] && 
-             !_isExcludedFromFee[recipient] && 
-             !manager.farmOwners(sender) && 
-             !manager.farmOwners(sender)
+            !_isExcludedFromFee[sender] && 
+            !_isExcludedFromFee[recipient] && 
+            !manager.farmOwners(sender) && 
+            !manager.farmOwners(recipient) &&
+            !manager.rewards(sender) &&
+            !manager.rewards(recipient)
         ) {
             uint256 _fee = amount.mul(transferFeeRate).div(100);
             super._transfer(sender, marketingWallet, _fee);
@@ -67,17 +71,17 @@ contract EMP is Ownable, ERC20 {
 
     function inGame(address player, uint256 reward) external returns (bool){
         require(manager.farmOwners(_msgSender()), "Caller is not the farmer");
-        require (reward <= maxRewardPerCall, "Over Amount")
+        require (reward <= maxRewardPerCall, "Over Amount");
         require(rewardForBattle != inGameReward, "Over Amount");
-        require(player != address(0), "wrong address");
-        require(reward > 0, "wrong reward");
+        require(player != address(0), "Wrong Address");
+        require(reward > 0, "Wrong Reward");
 
         rewardForBattle = rewardForBattle.add(reward);
         require(rewardForBattle <= inGameReward, "Exceed Game Reward");
         _mint(player, reward);
         return true;
     }
-    
+
     function isExcludedFromFee(address account) public view returns(bool) {
         return _isExcludedFromFee[account];
     }
@@ -85,7 +89,7 @@ contract EMP is Ownable, ERC20 {
     function excludeFromFee(address account) public onlyOwner {
         _isExcludedFromFee[account] = true;
     }
-    
+
     function includeInFee(address account) public onlyOwner {
         _isExcludedFromFee[account] = false;
     }
@@ -99,7 +103,7 @@ contract EMP is Ownable, ERC20 {
     }
 
     function setTransferFeeRate(uint256 _sellFee, uint256 _buyFee) public onlyOwner {
-        require (feeLimitation >= _sellFee && feeLimitation >= _buyFee, ' Exceed Limitation Fee')
+        require (feeLimitation >= _sellFee && feeLimitation >= _buyFee, ' Exceed Limitation Fee');
         sellFee = _sellFee;
         buyFee = _buyFee;
     }
